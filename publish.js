@@ -8,31 +8,60 @@ function isImageFile(filePath) {
     return ['.jpg', '.jpeg', '.png', '.gif'].includes(ext);
 }
 
-function walkDir(dir, filelist = []) {
+// 读取现有images.json的内容，如果存在的话
+let existingImages;
+try {
+    existingImages = JSON.parse(fs.readFileSync(outputFilePath, 'utf-8'));
+} catch (e) {
+    existingImages = [];
+}
+
+function walkDir(dir) {
     const files = fs.readdirSync(dir);
+    let fileList = []; // 统一存储所有图片
 
     files.forEach(function (file) {
         const filepath = path.join(dir, file);
         const stat = fs.statSync(filepath);
         if (stat.isDirectory()) {
-            filelist = walkDir(filepath, filelist);
+            fileList.push(...walkDir(filepath));
         } else if (isImageFile(filepath)) {
             const relativePath = path.relative(imgDir, filepath);
-            filelist.push({
-                src: `https://cdn.jsdelivr.net/gh/ddabb/goodpic/img/${relativePath.split(path.sep).join('/')}`,
-                alt: path.basename(file, path.extname(file))
-            });
+            const url = `https://cdn.jsdelivr.net/gh/ddabb/goodpic/img/${relativePath.split(path.sep).join('/')}`;
+            // 查找existingImages中是否有对应项
+            const existingImage = existingImages.find(img => img.src === url);
+            if (existingImage && existingImage.alt !== undefined && existingImage.alt !== '') {
+                // 如果有对应的非空alt，则添加到列表
+                fileList.push({
+                    src: url,
+                    alt: existingImage.alt
+                });
+            } else {
+                // 没有找到或者alt为空，则优先级更高，放在列表前面
+                fileList.unshift({
+                    src: url,
+                    alt: ''
+                });
+            }
         }
     });
 
-    return filelist;
+    return fileList;
 }
 
-function createImagesJson() {
+function updateImagesJson() {
     const images = walkDir(imgDir);
-    const jsonData = JSON.stringify(images, null, 4);
+
+    // 更新images.json，删除不存在的图片条目
+    const updatedImages = images.filter(image => {
+        // 提取imgDir下的相对路径
+        const imagePath = path.join(imgDir, image.src.replace('https://cdn.jsdelivr.net/gh/ddabb/goodpic/img/', ''));
+        return fs.existsSync(imagePath);
+    });
+
+    const jsonData = JSON.stringify(updatedImages, null, 4);
     fs.writeFileSync(outputFilePath, jsonData, 'utf-8');
-    console.log(`Generated ${outputFilePath}`);
+    console.log(`Updated ${outputFilePath}`);
 }
 
-createImagesJson();
+updateImagesJson();
